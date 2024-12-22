@@ -1,34 +1,23 @@
-// File structure:
-/*
-discord-bot/
-  ├── index.js
-  ├── commands/
-  │   ├── ping.js
-  │   └── help.js
-  ├── config.json
-  └── package.json
-*/
-
-// First, run these commands in terminal:
-// mkdir discord-bot
-// cd discord-bot
-// npm init -y
-// npm install discord.js dotenv
-
-// In index.js:
-require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
+const mongoose = require('mongoose');
+require('dotenv').config();
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent
-    ]
+    ],
 });
 
+// Database Connection
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('Connected to MongoDB'))
+    .catch((error) => console.error('MongoDB connection error:', error));
+
+// Commands Collection
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -36,45 +25,39 @@ const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('
 for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
-    client.commands.set(command.data.name, command);
+    if ('data' in command && 'execute' in command) {
+        client.commands.set(command.data.name, command);
+    } else {
+        console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+    }
 }
 
-client.once('ready', () => {
-    console.log(`Logged in as ${client.user.tag}!`);
-});
+// Events Handler
+const eventsPath = path.join(__dirname, 'events');
+const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
 
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand()) return;
-
-    const command = client.commands.get(interaction.commandName);
-    if (!command) return;
-
-    try {
-        await command.execute(interaction);
-    } catch (error) {
-        console.error(error);
-        await interaction.reply({ content: 'There was an error executing this command!', ephemeral: true });
+for (const file of eventFiles) {
+    const filePath = path.join(eventsPath, file);
+    const event = require(filePath);
+    if (event.once) {
+        client.once(event.name, (...args) => event.execute(...args));
+    } else {
+        client.on(event.name, (...args) => event.execute(...args));
     }
+}
+
+// Database connection status event
+mongoose.connection.on('connected', () => {
+    console.log('MongoDB connection established successfully');
 });
 
-// Create .env file in root directory:
-// DISCORD_TOKEN=your_bot_token_here
+mongoose.connection.on('error', (err) => {
+    console.error('MongoDB connection error:', err);
+});
 
+mongoose.connection.on('disconnected', () => {
+    console.log('MongoDB connection disconnected');
+});
+
+// Bot login
 client.login(process.env.DISCORD_TOKEN);
-
-// In commands/ping.js:
-
-
-// In commands/help.js:
-
-
-// To run the bot:
-// node index.js
-
-// Before running, make sure to:
-// 1. Create a new application at https://discord.com/developers/applications
-// 2. Create a bot for your application
-// 3. Get the bot token and add it to .env file
-// 4. Enable necessary intents in the Discord Developer Portal
-// 5. Generate invite link with proper permissions
-// 6. Invite the bot to your server
